@@ -9,6 +9,11 @@ on:
         required: true
         type: string
         default: 'nginx:stable-alpine'
+      target_image:
+        description: '阿里云目标镜像名（可选，留空则自动生成。如：nginx、nacos:v3.2.3、oracle:free23.3.0.0）'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   pull-and-push:
@@ -28,27 +33,75 @@ jobs:
           echo "📥 拉取镜像: ${{ inputs.public_image }}"
           docker pull ${{ inputs.public_image }}
 
-      # 3. 自动生成 ACR 镜像名并打标签
-      - name: Generate ACR Image Name and Tag
+      # 3. 生成 ACR 目标镜像名
+      - name: Generate ACR Image Name
         id: generate
         run: |
           PUBLIC_IMAGE="${{ inputs.public_image }}"
+          TARGET_INPUT="${{ inputs.target_image }}"
           
-          # 提取镜像名（去除组织前缀）
-          # 例如: nacos/nacos-server:v3.2.3 → nacos-server:v3.2.3
-          #       nginx:stable-alpine → nginx:stable-alpine
-          #       mysql → mysql:latest
-          IMAGE_NAME="${PUBLIC_IMAGE##*/}"
+          echo "============================================"
+          echo "📦 镜像同步配置"
+          echo "  公共镜像: $PUBLIC_IMAGE"
+          echo "  目标镜像输入: ${TARGET_INPUT:-（留空，自动生成）}"
+          echo "============================================"
           
-          # 检查是否包含标签，若无则追加 :latest
-          if [[ "$IMAGE_NAME" != *:* ]]; then
-            IMAGE_NAME="${IMAGE_NAME}:latest"
+          # ============================================
+          # 函数：确保镜像名包含标签
+          # ============================================
+          ensure_tag() {
+            local image="$1"
+            if [[ "$image" != *:* ]]; then
+              echo "${image}:latest"
+            else
+              echo "$image"
+            fi
+          }
+          
+          # ============================================
+          # 情况 1：用户指定了目标镜像名
+          # ============================================
+          if [ -n "$TARGET_INPUT" ]; then
+            echo "🔧 使用用户指定的目标镜像名"
+            
+            # 确保目标镜像名包含标签
+            TARGET_IMAGE=$(ensure_tag "$TARGET_INPUT")
+            
+            # 检查目标镜像名是否包含组织前缀，若包含则报错
+            if [[ "$TARGET_IMAGE" == */* ]]; then
+              echo "❌ 错误: 目标镜像名不能包含组织前缀（/）"
+              echo "   请输入纯镜像名:标签格式，如: nginx:latest 或 nacos:v3.2.3"
+              exit 1
+            fi
+            
+            echo "  目标镜像: $TARGET_IMAGE"
+            
+          # ============================================
+          # 情况 2：自动生成目标镜像名
+          # ============================================
+          else
+            echo "🤖 自动生成目标镜像名"
+            
+            # 提取镜像名（去除组织前缀）
+            # 例如: container-registry.oracle.com/database/free:23.3.0.0 → free:23.3.0.0
+            #       nacos/nacos-server:v3.2.3 → nacos-server:v3.2.3
+            #       nginx:stable-alpine → nginx:stable-alpine
+            #       mysql → mysql:latest
+            BASE_NAME="${PUBLIC_IMAGE##*/}"
+            
+            # 确保包含标签
+            TARGET_IMAGE=$(ensure_tag "$BASE_NAME")
+            
+            echo "  自动生成目标镜像: $TARGET_IMAGE"
           fi
           
-          # 构建完整的 ACR 目标镜像地址
-          ACR_IMAGE="${{ vars.ALIYUN_REGISTRY }}/${{ vars.ALIYUN_NAMESPACE }}/${IMAGE_NAME}"
+          # ============================================
+          # 构建完整的 ACR 镜像地址
+          # ============================================
+          ACR_IMAGE="${{ vars.ALIYUN_REGISTRY }}/${{ vars.ALIYUN_NAMESPACE }}/${TARGET_IMAGE}"
           
-          echo "🔄 生成的 ACR 镜像名: $ACR_IMAGE"
+          echo ""
+          echo "📤 最终 ACR 镜像地址: $ACR_IMAGE"
           echo "acr_image=$ACR_IMAGE" >> $GITHUB_OUTPUT
           
           # 打标签
