@@ -1,0 +1,77 @@
+# ============================================
+# Node-0 中间件镜像同步清单（Alpine 优先版）
+# ============================================
+# 格式: 每行一个镜像名（含标签），支持组织前缀
+# 推送后自动取最后一段作为 ACR 仓库名
+# 镜像策略: 优先 Alpine 变体 + LTS/稳定版
+# ============================================
+
+# ============================================
+# 核心基础服务
+# ============================================
+# Nginx 1.28 LTS (Alpine) - 稳定版标签
+nginx:stable-alpine
+# MySQL 8.4 LTS（官方暂未提供 Alpine 变体）
+mysql:8.4
+# Redis 8.8 LTS (Alpine)
+redis:8.8-alpine
+
+# ============================================
+# 数据存储类
+# ============================================
+# PostgreSQL 17.0 LTS (Alpine)
+postgres:17.0-alpine
+# MongoDB 8.0 LTS（官方暂未提供 Alpine 变体）
+mongo:8.0
+# Elasticsearch 9.4.4 LTS（官方暂未提供 Alpine 变体）
+elasticsearch:9.4.4
+
+# ============================================
+# 消息队列类
+# ============================================
+# RabbitMQ 4.1 LTS (Alpine)
+rabbitmq:4.1-management-alpine
+# Zookeeper 3.8.6 LTS
+zookeeper:3.8.6
+# RocketMQ 5.5.0 LTS
+apache/rocketmq:5.5.0
+
+# ============================================
+# 注册/配置/治理类
+# ============================================
+# Nacos 3.2.3
+nacos/nacos-server:v3.2.3
+# Seata 2.6.0（使用官方 Apache 镜像）
+apache/seata-server:2.6.0
+# Sentinel 1.8.10（使用 latest 版本，因 1.8.10 标签不存在）
+bladex/sentinel-dashboard:latest
+# ShardingSphere-Proxy 5.5.1
+apache/shardingsphere-proxy:5.5.1
+
+# ============================================
+# 可观测性类
+# ============================================
+# SkyWalking 10.4.0 OAP Server
+apache/skywalking-oap-server:10.4.0
+# SkyWalking 10.4.0 UI
+apache/skywalking-ui:10.4.0
+# Logstash 8.15 LTS
+docker.elastic.co/logstash/logstash:8.15.0
+# Kibana 8.15 LTS
+docker.elastic.co/kibana/kibana:8.15.0
+
+# ============================================
+# 监控类
+# ============================================
+# Prometheus（官方镜像已基于 Alpine）
+prom/prometheus:latest
+# Grafana 11.2 LTS
+grafana/grafana:11.2.0
+# Portainer CE
+portainer/portainer-ce:latest
+
+# ============================================
+# CI/CD 类
+# ============================================
+# Jenkins LTS (Alpine)
+jenkins/jenkins:lts-alpine-jdk21
