@@ -1,0 +1,70 @@
+# .github/workflows/single-sync.yml
+name: Single Image Sync to Aliyun ACR
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_image:
+        description: '公共镜像名称（如：nginx:stable-alpine、nacos/nacos-server:v3.2.3、mysql）'
+        required: true
+        type: string
+        default: 'nginx:stable-alpine'
+
+jobs:
+  pull-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 登录到阿里云 ACR
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      # 2. 从 Docker Hub 拉取公共镜像
+      - name: Pull Public Image
+        run: |
+          echo "📥 拉取镜像: ${{ inputs.public_image }}"
+          docker pull ${{ inputs.public_image }}
+
+      # 3. 自动生成 ACR 镜像名并打标签
+      - name: Generate ACR Image Name and Tag
+        id: generate
+        run: |
+          PUBLIC_IMAGE="${{ inputs.public_image }}"
+          
+          # 提取镜像名（去除组织前缀）
+          # 例如: nacos/nacos-server:v3.2.3 → nacos-server:v3.2.3
+          #       nginx:stable-alpine → nginx:stable-alpine
+          #       mysql → mysql:latest
+          IMAGE_NAME="${PUBLIC_IMAGE##*/}"
+          
+          # 检查是否包含标签，若无则追加 :latest
+          if [[ "$IMAGE_NAME" != *:* ]]; then
+            IMAGE_NAME="${IMAGE_NAME}:latest"
+          fi
+          
+          # 构建完整的 ACR 目标镜像地址
+          ACR_IMAGE="${{ vars.ALIYUN_REGISTRY }}/${{ vars.ALIYUN_NAMESPACE }}/${IMAGE_NAME}"
+          
+          echo "🔄 生成的 ACR 镜像名: $ACR_IMAGE"
+          echo "acr_image=$ACR_IMAGE" >> $GITHUB_OUTPUT
+          
+          # 打标签
+          docker tag "$PUBLIC_IMAGE" "$ACR_IMAGE"
+          echo "✅ 标签创建成功: $PUBLIC_IMAGE → $ACR_IMAGE"
+
+      # 4. 推送镜像到阿里云 ACR
+      - name: Push Image to ACR
+        run: |
+          echo "📤 推送镜像: ${{ steps.generate.outputs.acr_image }}"
+          docker push ${{ steps.generate.outputs.acr_image }}
+          echo "✅ 推送完成！"
+
+      # 5. 清理本地镜像（可选）
+      - name: Clean Up
+        if: always()
+        run: |
+          docker rmi ${{ inputs.public_image }} ${{ steps.generate.outputs.acr_image }} 2>/dev/null || true
+          docker system prune -f
