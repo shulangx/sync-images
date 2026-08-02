@@ -1,0 +1,160 @@
+# .github/workflows/batch-sync.yml
+name: Batch Sync Docker Images to Aliyun ACR
+
+on:
+  # ============================================
+  # 触发方式 1：images.txt 变更触发（已启用）
+  # ============================================
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - images.txt
+
+  # ============================================
+  # 触发方式 2：手动触发（已启用）
+  # ============================================
+  workflow_dispatch:
+
+  # ============================================
+  # 触发方式 3：定时触发（已注释，备用）
+  # 如需启用，取消下方注释即可
+  # ============================================
+  # schedule:
+  #   - cron: "0 2 * * *"      # 每天 UTC 02:00（北京时间 10:00）执行
+  #   - cron: "0 14 * * *"     # 每天 UTC 14:00（北京时间 22:00）执行
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: Pull, Tag and Push Images
+        run: |
+          # ============================================
+          # 函数：提取仓库名（取镜像名最后一段）
+          # ============================================
+          extract_repo_name() {
+            local image="$1"
+            # 移除标签部分（:tag）
+            local image_without_tag="${image%%:*}"
+            # 取最后一段（org/name → name）
+            echo "${image_without_tag##*/}"
+          }
+          
+          # ============================================
+          # 函数：验证 ACR 仓库名是否合规
+          # ============================================
+          validate_repo_name() {
+            local repo="$1"
+            local len=${#repo}
+            
+            # 长度检查：2-64 字符
+            if [ $len -lt 2 ] || [ $len -gt 64 ]; then
+              echo "❌ 仓库名长度不符合规范（2-64字符）：当前 ${len} 字符"
+              return 1
+            fi
+            
+            # 字符检查：仅小写字母、数字、_ - .
+            # 分隔符不能在首位或末位
+            if ! echo "$repo" | grep -qE '^[a-z0-9][a-z0-9_.-]*[a-z0-9]$'; then
+              echo "❌ 仓库名包含非法字符：$repo"
+              echo "   仅允许小写字母、数字、分隔符（_ - .），分隔符不能在首位或末位"
+              return 1
+            fi
+            
+            echo "✅ 仓库名合规：$repo"
+            return 0
+          }
+          
+          # ============================================
+          # 主循环：处理镜像列表
+          # ============================================
+          SUCCESS_COUNT=0
+          FAIL_COUNT=0
+          
+          echo "============================================"
+          echo "📦 开始批量同步镜像（Alpine 优先版）"
+          echo "  触发方式: ${{ github.event_name }}"
+          echo "============================================"
+          
+          while IFS= read -r image || [ -n "$image" ]; do
+            # 跳过注释行和空行
+            [[ "$image" =~ ^#.*$ || -z "$image" ]] && continue
+            
+            echo ""
+            echo "============================================"
+            echo "📦 处理镜像: $image"
+            
+            # 提取仓库名
+            repo_name=$(extract_repo_name "$image")
+            echo "  自动提取仓库名: $repo_name"
+            
+            # 验证仓库名
+            if ! validate_repo_name "$repo_name"; then
+              echo "⚠️  跳过该镜像，请手动修正"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+            
+            # 提取标签
+            tag="${image##*:}"
+            if [ "$tag" = "$image" ]; then
+              tag="latest"
+              echo "  标签: (未指定，默认 latest)"
+            else
+              echo "  标签: $tag"
+            fi
+            
+            # 构建目标镜像完整地址
+            target_image="${{ vars.ALIYUN_REGISTRY }}/${{ vars.ALIYUN_NAMESPACE }}/${repo_name}:${tag}"
+            echo "  目标镜像: $target_image"
+            
+            # 执行同步
+            if docker pull "$image"; then
+              if docker tag "$image" "$target_image"; then
+                if docker push "$target_image"; then
+                  echo "✅ 同步成功: $image → $target_image"
+                  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                else
+                  echo "❌ 推送失败: $target_image"
+                  FAIL_COUNT=$((FAIL_COUNT + 1))
+                fi
+              else
+                echo "❌ 标签失败: $image → $target_image"
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+              fi
+            else
+              echo "❌ 拉取失败: $image"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+            fi
+            
+          done < images.txt
+          
+          # ============================================
+          # 输出汇总
+          # ============================================
+          echo ""
+          echo "============================================"
+          echo "📊 同步汇总（Alpine 优先版）"
+          echo "  触发方式: ${{ github.event_name }}"
+          echo "  成功: $SUCCESS_COUNT"
+          echo "  失败: $FAIL_COUNT"
+          echo "============================================"
+          
+          if [ $FAIL_COUNT -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: Clean up
+        run: docker system prune -f
